@@ -13,6 +13,25 @@ app.use(bodyParser.json());
 
 // Store latest parking data
 let latestParkingData = null;
+let clients = new Set();
+
+// SSE endpoint
+app.get('/api/parking-data/stream', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+
+  // Send initial data if available
+  if (latestParkingData) {
+    res.write(`data: ${JSON.stringify(latestParkingData)}\n\n`);
+  }
+
+  // Add client to Set
+  clients.add(res);
+
+  // Remove client when connection closes
+  req.on('close', () => clients.delete(res));
+});
 
 // Connect to MQTT broker using environment variables
 const mqttClient = mqtt.connect(process.env.BROKER_URL, {
@@ -46,6 +65,11 @@ mqttClient.on('message', (topic, message) => {
     const data = JSON.parse(message.toString());
     console.log('Payload:', JSON.stringify(data, null, 2));
     latestParkingData = data;
+
+    // Send update to all connected clients
+    clients.forEach(client => {
+      client.write(`data: ${JSON.stringify(data)}\n\n`);
+    });
   } catch (error) {
     console.error('Error parsing MQTT message:', error);
     console.log('Raw message:', message.toString());
@@ -102,5 +126,6 @@ app.post('/api/parking-data', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Backend server running on port ${PORT}`);
 });
+
 
 
